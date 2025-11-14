@@ -237,7 +237,9 @@ sudo systemctl restart nginx
 # Créditos
 
 **Proyecto desarrollado por:**  
-👤 **Richard  
+👤 **Richard Pérez**
+👤 **Alejandro Gómez**
+👤 **Luis Toscano**
 
 **Asistencia técnica y documentación generada con:**  
 🤖 *ChatGPT (OpenAI), como herramienta de apoyo para explicación, depuración y generación de documentación técnica.*

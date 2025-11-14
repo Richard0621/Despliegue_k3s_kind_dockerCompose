@@ -1,131 +1,259 @@
-# Restful Ecommerce
+# Proyecto Final – Plataforma de E-commerce (Despliegue y Monitorización)
 
-![Docker Image CI](https://github.com/devdbrandy/restful-ecommerce/workflows/Docker%20Image%20CI/badge.svg?branch=master)
-![Node.js CI](https://github.com/devdbrandy/restful-ecommerce/workflows/Node.js%20CI/badge.svg?branch=master)
-
-## Overview
-
-A simple minimalistic ecommerce REST API built with Node.js and Express.js, showcasing three major functionalities:
-
-1. Authentication
-2. Products listing
-3. Order placements
-4. Access restrictions
-
-> Demo Users
->
-> | Email               | Password | Access       |
-> | ------------------- | -------- | ------------ |
-> | `admin@example.com` | `secret` | Admin Access |
-> | `user@example.com`  | `secret` | User Access  |
-
-[![Run in Postman](https://run.pstmn.io/button.svg)](https://app.getpostman.com/run-collection/cfdf0e762edcf3abe91b)
+Este proyecto implementa el backend de un sistema de comercio electrónico basado en **Node.js**, **PostgreSQL**, contenedores **Docker**, orquestación con **Kubernetes**, y un stack de monitoreo basado en **Prometheus + Grafana + Node Exporter**.  
+Se desarrollaron tres fases principales: Docker Compose, k3s y finalmente kind con Nginx reverse proxy.
 
 ---
 
-Database Schema Design
-![Database Schema Design](/screenshots/db-schema-design.png)
+## Backend del Proyecto
+
+El backend utilizado se clonó desde:  
+- https://github.com/devdbrandy/restful-ecommerce
+
+Incluye:
+
+- API REST con **Node.js + Express**
+- Módulos de usuarios, productos, categorías y pedidos
+- Base de datos **PostgreSQL**
+- Migraciones y seeders con **Sequelize**
+
+Ejemplos de endpoints:
+
+- GET /api/v1/products
+- POST /auth/login
+- GET /api/v1/users
+
+# ✅ FASE 1 – Docker Compose + Stack de Monitoreo
+
+## 1. Clonación del backend
+
+```bash
+git clone https://github.com/devdbrandy/restful-ecommerce
+```
+Cambios realizados:
+
+- Actualización de Alpine en Dockerfile.
+- Ajustes al docker-compose.yml.
+- Volumen persistente nombrado.
+
+## 2. Integración de Prometheus + Grafana + Node Exporter
+
+- Se creó prometheus_conf.yml
+- Se agregaron servicios al Docker Compose ( Node Exporter y Prometheus y Grafana)
+
+Accesos:
+
+- Prometheus → http://<EC2>:9090
+- Grafana → http://<EC2>:3001
+
+En Grafana:
+
+- Se configuró Prometheus como datasource (http://prometheus:9090)
+- Se importó dashboard 1860 – Node Exporter Full
+
+Migraciones (Agrgar datos a la db):
+```bash
+docker exec -it restful-ecommerce_api_1 npx sequelize db:migrate
+docker exec -it restful-ecommerce_api_1 npx sequelize db:seed:all
+```
+# ✅ FASE 2 – Migración a Kubernetes con K3s
+
+En esta fase se migró el despliegue desde Docker Compose hacia Kubernetes utilizando **k3s**, una distribución ligera ideal para EC2.
+
+## 1. Creación de Namespaces
+
+```bash
+sudo k3s kubectl apply -f namespace.yaml
+sudo k3s kubectl apply -f namespace_m.yaml
+```
+
+Namespaces creados:
+- `ecommerce` → API + Postgres  
+- `monitoring` → Prometheus + Grafana + Node Exporter
 
 ---
 
-<!-- TOC depthFrom:2 -->
+## 2. Despliegue de API y Base de Datos
 
-- [Overview](#overview)
-- [1. :rocket: Getting Started](#1-rocket-getting-started)
-  - [1.1 Prerequisites](#11-prerequisites)
-  - [1.2. Run locally](#12-run-locally)
-  - [1.3. Test Locally](#13-test-locally)
-  - [1.4. Running Test](#14-running-test)
-- [2. :lock: Authentication](#2-lock-authentication)
-- [3. :bookmark: API Versioning](#3-bookmark-api-versioning)
-- [3. :green_heart: HTTP Response Codes](#3-green_heart-http-response-codes)
-- [4. :pencil: License](#4-pencil-license)
+```bash
+sudo k3s kubectl apply -f postgres-deployment.yaml
+sudo k3s kubectl apply -f api-deployment.yaml
+```
 
-<!-- /TOC -->
+Verificar recursos:
 
-## 1. :rocket: Getting Started
+```bash
+sudo k3s kubectl get all -n ecommerce
+```
 
-### 1.1 Prerequisites
+Acceso a la API mediante NodePort:
+```
+http://<EC2_PUBLIC_IP>:32032/api/v1/products
+```
 
-To get started, ensure that you have the following installed on your local machine:
+---
 
-- [NodeJS](https://nodejs.org/en/download/)
-- [PostgreSQL](https://www.postgresql.org/download/)
+## 3. Migraciones dentro del Pod de la API
 
-### 1.2. Run locally
+```bash
+sudo k3s kubectl exec -it -n ecommerce ecommerce-api-XXXX -- sh
+npx sequelize db:migrate
+npx sequelize db:seed:all
+```
 
-- Clone repository or clone your own fork
+---
 
-  ```bash
-  git clone https://github.com/devdbrandy/restful-ecommerce.git
-  ```
+## 4. Despliegue del Stack de Monitoreo
 
-- Make a duplicate of `.env.example` and rename to `.env`, then configure your credentials.
-  NB: After creating `.env` file, ensure that you set `APP_PKEY` to any secret phrase you want.
-- Install dependencies by running `npm i` or `npm install` on your terminal.
-- Run migration: `npm run db:migrate`
-- (Optional) Seed dummy data `npm run db:seed`
-- Two npm scripts are availiable to spin up the app server:
-  - `npm run start` spin up the server without watching for any file changes (Requires `npm run build`)
-  - `npm run serve` watches for any file changes and reloads the server
+```bash
+sudo k3s kubectl apply -f prometheus-configmap.yaml
+sudo k3s kubectl apply -f prometheus-deployment.yaml
+sudo k3s kubectl apply -f grafana-deployment.yaml
+sudo k3s kubectl apply -f node-exporter.yaml
+```
 
-### 1.3. Test Locally
+Verificar:
 
-To test or consume api locally, you can make use of [_Postman_](https://www.getpostman.com) or [_Insomnia_](https://insomnia.rest/download/)
+```bash
+sudo k3s kubectl get all -n monitoring
+```
 
-[![Run in Postman](https://run.pstmn.io/button.svg)](https://app.getpostman.com/run-collection/cfdf0e762edcf3abe91b)
+Puertos NodePort:
+- Prometheus → **30090**
+- Grafana → **30300**
 
-### 1.4. Running Test
+Acceso desde navegador:
+```
+http://<EC2_PUBLIC_IP>:30300
+```
 
-Test specs are implemented using [_jest_](https://jestjs.io).
+### Configuración en Grafana
+1. Login: `admin / admin`  
+2. Agregar Prometheus como DataSource:
+   ```
+   http://prometheus:9090
+   ```
+3. Importar dashboard **ID 1860 – Node Exporter Full**
 
-Two npm scripts are available to run the test suite:
+---
 
-1. `npm t` or `npm test` - Performs a single full test suite run, including jest code coverage reporting. Summary coverage reports are written to stdout, and detailed HTML reports are available in `/coverage/lcov-report/index.html`
-2. `npm run test:watch` - This watches for any file changes and runs the full test suite.
+## 5. Escalamiento de la API
 
-## 2. :lock: Authentication
+Editar `api-deployment.yaml`:
 
-Access to restricted API endpoints requires an access token. To obtain your access token, make a request along with any dummy `username` and `password` credentials to `/login`.
+```yaml
+replicas: 1
+```
 
-**Sample Response:**
+Cambiar por:
 
-```http
-POST http://localhost:3000/login
-HTTP/1.1
-Accept: application/json
+```yaml
+replicas: 2
+```
 
-HTTP/1.1 200 OK
-Content-Type: application/json
+o más, según pruebas.
 
-{
-  "success": true,
-  "data": {
-    "token": "...",
-  }
+---
+
+# ✅ FASE 3 – Migración a KIND + Reverse Proxy con Nginx
+
+Para un entorno más limpio y reproducible, se eliminó el despliegue anterior y se migró a **kind**, un clúster Kubernetes dentro de Docker.
+
+## 1. Limpieza del entorno K3s
+
+```bash
+sudo k3s kubectl delete -f kubernetes/api-deployment.yaml -n ecommerce
+sudo k3s kubectl delete -f kubernetes/postgres-deployment.yaml -n ecommerce
+sudo k3s kubectl delete -f kubernetes/prometheus-deployment.yaml -n monitoring
+sudo k3s kubectl delete -f kubernetes/grafana-deployment.yaml -n monitoring
+sudo k3s kubectl delete ns ecommerce
+sudo k3s kubectl delete ns monitoring
+```
+
+---
+
+## 2. Creación del clúster KIND
+
+```bash
+kind create cluster --name ecommerce-cluster-proyectosf3 --config kind.yaml
+kubectl get nodes
+```
+
+Resultado esperado:
+- 1 nodo control-plane  
+- 1 nodo worker  
+
+---
+
+## 3. Adaptación de Services para KIND
+
+KIND **NO soporta LoadBalancer**, por lo que todos los servicios deben ser:
+
+```yaml
+type: NodePort
+```
+
+Esto permite exponer los servicios hacia fuera usando Nginx como reverse proxy.
+
+---
+
+## 4. Configuración del Reverse Proxy con Nginx
+
+Se crearon archivos individuales para evitar mezclas de tráfico:
+
+- `/etc/nginx/sites-available/api`
+- `/etc/nginx/sites-available/grafana`
+- `/etc/nginx/sites-available/prometheus`
+
+Ejemplo de configuración:
+
+```nginx
+server {
+    listen 8081;
+    location / {
+        proxy_pass http://172.18.0.2:30300;  # Grafana NodePort
+    }
 }
 ```
 
-## 3. :bookmark: API Versioning
+Activación:
 
-The second part of the URI specifies the API version you wish to access in the format `v{version_number}`.
-For example, version 1 of the API (most current) is accessible via:
-
-```http
-  http://localhost:3000/api/v1
+```bash
+sudo ln -s /etc/nginx/sites-available/api /etc/nginx/sites-enabled/
+sudo systemctl restart nginx
 ```
 
-## 3. :green_heart: HTTP Response Codes
+---
 
-Each response will be returned with one of the following HTTP status codes:
+## 5. Acceso final a los servicios expuestos mediante Nginx
 
-- `200` `OK` The request was successful
-- `400` `Bad Request` There was a problem with the request (security, malformed)
-- `401` `Unauthorized` The supplied API credentials are invalid
-- `403` `Forbidden` The credentials provided do not have permissions to access the requested resource
-- `404` `Not Found` An attempt was made to access a resource that does not exist in the API
-- `500` `Server Error` An error on the server occurred
+- API → `http://<EC2_PUBLIC_IP>:8080`  
+- Grafana → `http://<EC2_PUBLIC_IP>:8081`  
+- Prometheus → `http://<EC2_PUBLIC_IP>:8082`  
 
-## 4. :pencil: License
+---
 
-This project is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+# Créditos
+
+**Proyecto desarrollado por:**  
+👤 **Richard  
+
+**Asistencia técnica y documentación generada con:**  
+🤖 *ChatGPT (OpenAI), como herramienta de apoyo para explicación, depuración y generación de documentación técnica.*
+
+**Backend utilizado:**  
+📦 https://github.com/devdbrandy/restful-ecommerce
+
+**Tecnologías:**  
+- Docker  
+- Docker Compose  
+- K3s  
+- KIND  
+- Kubernetes  
+- Prometheus  
+- Grafana  
+- Node Exporter  
+- Nginx Reverse Proxy  
+- Node.js  
+- PostgreSQL  
